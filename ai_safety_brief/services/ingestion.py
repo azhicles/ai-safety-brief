@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from html import unescape
@@ -211,12 +212,23 @@ class SourceCollector:
         def add_candidate(anchor, container) -> None:
             href = anchor.get("href")
             title = normalize_whitespace(anchor.get_text(" ", strip=True))
-            if not href or not title:
+            if not href:
+                return
+            if href.startswith(("mailto:", "tel:", "#", "javascript:")):
+                return
+            if "@" in title:
                 return
             url = normalize_url(urljoin(source.url, href))
-            if url == normalize_url(source.url) or url in seen_links:
+            if not self._is_listing_link_allowed(source, url):
                 return
-            if urlsplit(url).netloc and urlsplit(url).netloc not in urlsplit(source.url).netloc:
+            if self._is_generic_anchor_text(title):
+                derived_title = self._derive_title_from_container(container)
+                if derived_title:
+                    title = derived_title
+            title = self._clean_listing_title(title)
+            if not title or self._is_generic_anchor_text(title):
+                return
+            if url == normalize_url(source.url) or url in seen_links:
                 return
             excerpt = ""
             if container is not None:
@@ -260,7 +272,65 @@ class SourceCollector:
                 if len(candidates) >= 12:
                     break
 
+        if not candidates:
+            for anchor in soup.find_all("a", href=True):
+                add_candidate(anchor, anchor.parent)
+                if len(candidates) >= 12:
+                    break
+
         return candidates[:12]
+
+    def _is_listing_link_allowed(self, source: SourceDefinition, url: str) -> bool:
+        parts = urlsplit(url)
+        source_parts = urlsplit(source.url)
+        if parts.scheme not in {"http", "https"}:
+            return False
+        if parts.netloc and parts.netloc not in source_parts.netloc:
+            return False
+        if parts.path.rstrip("/") in {"", "/"}:
+            return False
+        return True
+
+    def _is_generic_anchor_text(self, text: str) -> bool:
+        normalized = normalize_whitespace(text).lower()
+        return normalized in {
+            "",
+            "continue reading",
+            "read more",
+            "read announcement",
+            "announcement",
+            "read post",
+        }
+
+    def _derive_title_from_container(self, container) -> str:
+        if container is None:
+            return ""
+        current = container
+        for _ in range(4):
+            if current is None:
+                break
+            for tag in ("h1", "h2", "h3", "h4", "strong"):
+                heading = current.find(tag)
+                if heading:
+                    title = normalize_whitespace(heading.get_text(" ", strip=True))
+                    if title and not self._is_generic_anchor_text(title) and "@" not in title:
+                        return title
+            current = current.parent
+        return ""
+
+    def _clean_listing_title(self, title: str) -> str:
+        clean = normalize_whitespace(title)
+        for marker in (" Announcements ", " Announcement ", " Product ", " Research "):
+            if marker in clean:
+                clean = clean.split(marker, 1)[0]
+                break
+        clean = re.sub(
+            r"\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* \d{1,2}, \d{4}\b.*$",
+            "",
+            clean,
+            flags=re.IGNORECASE,
+        )
+        return normalize_whitespace(clean).rstrip(":-")
 
     def _feed_author(self, entry: dict) -> str:
         if "author" in entry:
@@ -297,4 +367,3 @@ class SourceCollector:
             "User-Agent": "AI-Safety-Brief/1.0 (+https://github.com/)",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         }
-

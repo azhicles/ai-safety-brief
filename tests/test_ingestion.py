@@ -63,3 +63,29 @@ def test_feed_entries_to_candidates_filters_recent(tmp_path: Path):
     assert len(items) == 2
     assert "interpretability" in items[0].title.lower()
 
+
+def test_parse_listing_ignores_mailto_and_uses_nearby_heading(tmp_path: Path):
+    collector = SourceCollector(make_settings(tmp_path))
+    html = """
+    <html><body>
+      <section>
+        <h2>Project Glasswing</h2>
+        <p>A new initiative to secure critical software.</p>
+        <a href="https://www.anthropic.com/news/project-glasswing">Continue reading</a>
+      </section>
+      <section>
+        <a href="mailto:press@anthropic.com">press@anthropic.com</a>
+      </section>
+    </body></html>
+    """
+    source = SourceDefinition(
+        key="anthropic_news",
+        name="Anthropic News",
+        mode="listing",
+        url="https://www.anthropic.com/news",
+        listing_url="https://www.anthropic.com/news",
+        content_type="news",
+    )
+    items = collector._parse_listing(source, html, datetime(2026, 4, 8, 12, 0, tzinfo=timezone.utc))
+    assert len(items) == 1
+    assert items[0].title == "Project Glasswing"

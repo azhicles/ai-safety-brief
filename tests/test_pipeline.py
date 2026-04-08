@@ -35,6 +35,14 @@ class FakeCollector:
     def __init__(self) -> None:
         self._sources = [
             SourceDefinition(
+                key="anthropic_news",
+                name="Anthropic News",
+                mode="listing",
+                url="https://www.anthropic.com/news",
+                authority_weight=1.35,
+                content_type="news",
+            ),
+            SourceDefinition(
                 key="metr_blog",
                 name="METR",
                 mode="listing",
@@ -60,6 +68,16 @@ class FakeCollector:
 
     async def collect_recent(self, chat: ChatSettings):
         return [
+            CandidateItem(
+                source_key="anthropic_news",
+                source_name="Anthropic News",
+                title="Project Glasswing",
+                canonical_url="https://www.anthropic.com/news/project-glasswing",
+                content_type="news",
+                excerpt="A new initiative to secure the world's most critical software.",
+                raw_text="Anthropic announced a new initiative focused on securing critical software and improving frontier AI safeguards.",
+                published_at=datetime(2026, 4, 8, 11, 0, tzinfo=timezone.utc),
+            ),
             CandidateItem(
                 source_key="metr_blog",
                 source_name="METR",
@@ -98,7 +116,8 @@ async def test_pipeline_generates_digest_and_respects_seen_window(tmp_path: Path
     first = await pipeline.generate_digest(chat, triggered_by="manual")
     assert len(first.entries) == 2
     assert "AI Safety Brief" in first.messages[0]
+    assert "1. 🚨 Project Glasswing" in first.messages[0]
+    assert "📰 News" in first.messages[0]
 
     second = await pipeline.generate_digest(chat, triggered_by="manual")
     assert second.entries == []
-

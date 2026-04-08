@@ -11,16 +11,21 @@ from ai_safety_brief.db import Database
 from ai_safety_brief.models import CandidateItem, ChatSettings, DigestEntry, DigestResult, StoredItem
 from ai_safety_brief.services.ingestion import SourceCollector
 from ai_safety_brief.services.llm_refiner import GroqRefiner
-from ai_safety_brief.services.ranking import dedupe_candidates, is_relevant, score_candidate
+from ai_safety_brief.services.ranking import (
+    adjusted_selection_score,
+    dedupe_candidates,
+    is_relevant,
+    score_candidate,
+)
 from ai_safety_brief.services.summarizer import Summarizer
 from ai_safety_brief.utils.text import shorten, split_for_telegram
 
 logger = logging.getLogger(__name__)
 
 SECTION_LABELS = {
-    "news": "News",
-    "paper": "Papers",
-    "opinion": "Opinion",
+    "news": "📰 News",
+    "paper": "📄 Papers",
+    "opinion": "💭 Opinion",
 }
 
 
@@ -59,16 +64,13 @@ class DigestPipeline:
         merged.sort(key=lambda item: item.score, reverse=True)
 
         seen_ids = await self.db.get_seen_item_ids(chat.chat_id, chat.repeat_window_days)
-        selected_candidates: list[CandidateItem] = []
         selected_entries: list[StoredItem] = []
-        for candidate in merged:
-            if len(selected_entries) >= chat.top_k:
-                break
+        selected_candidates = self._select_diverse_candidates(merged, sources, chat.top_k)
+        for candidate in selected_candidates:
             candidate.summary, candidate.why_it_matters = self.summarizer.summarize(candidate)
             stored = await self.db.save_item(candidate)
             if stored.id in seen_ids:
                 continue
-            selected_candidates.append(candidate)
             selected_entries.append(stored)
 
         if not selected_entries:
@@ -123,8 +125,8 @@ class DigestPipeline:
         now: datetime,
     ) -> list[str]:
         lines = [
-            "AI Safety Brief",
-            now.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+            "🧠 AI Safety Brief",
+            f"Top {len(entries)} picks | {now.astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}",
             "",
         ]
 
@@ -132,18 +134,62 @@ class DigestPipeline:
         for entry in entries:
             grouped[entry.section].append(entry)
 
-        for section in ("News", "Papers", "Opinion"):
+        counter = 1
+        for section in ("📰 News", "📄 Papers", "💭 Opinion"):
             section_entries = grouped.get(section)
             if not section_entries:
                 continue
             lines.append(section)
             for entry in section_entries:
-                lines.append(f"- {entry.item.title}")
-                lines.append(f"   {shorten(entry.item.summary, 280)}")
-                lines.append(f"   Why it matters: {shorten(entry.item.why_it_matters, 180)}")
-                lines.append(f"   Source: {entry.item.source_name} | {entry.item.canonical_url}")
+                headline_emoji = self._entry_emoji(entry)
+                lines.append(f"{counter}. {headline_emoji} {entry.item.title}")
+                compact_line = (
+                    f"{shorten(entry.item.summary, 140)} "
+                    f"Why: {shorten(entry.item.why_it_matters, 90)}"
+                )
+                lines.append(f"   {compact_line}")
+                lines.append(f"   {entry.item.source_name} | {entry.item.canonical_url}")
                 lines.append("")
+                counter += 1
 
-        footer = ["Commands: /brief for an immediate digest, /settings to tune k, cadence, timezone, or sources."]
+        footer = ["Use /brief for a refresh or /settings to tune k, cadence, timezone, and sources."]
         text = "\n".join(lines + footer).strip()
         return split_for_telegram(text, self.settings.digest_message_limit)
+
+    def _select_diverse_candidates(
+        self,
+        candidates: list[CandidateItem],
+        sources: dict[str, object],
+        top_k: int,
+    ) -> list[CandidateItem]:
+        remaining = list(candidates)
+        selected: list[CandidateItem] = []
+
+        while remaining and len(selected) < top_k:
+            remaining_by_type = defaultdict(int)
+            for candidate in remaining:
+                remaining_by_type[candidate.content_type] += 1
+
+            best = max(
+                remaining,
+                key=lambda candidate: adjusted_selection_score(
+                    candidate,
+                    sources[candidate.source_key],
+                    selected,
+                    remaining_by_type,
+                    top_k,
+                ),
+            )
+            selected.append(best)
+            remaining.remove(best)
+        return selected
+
+    def _entry_emoji(self, entry: DigestEntry) -> str:
+        title = entry.item.title.lower()
+        if any(term in title for term in ("announce", "launch", "introduc", "initiative", "project")):
+            return "🚨"
+        if entry.item.content_type == "news":
+            return "📰"
+        if entry.item.content_type == "paper":
+            return "📄"
+        return "💭"
