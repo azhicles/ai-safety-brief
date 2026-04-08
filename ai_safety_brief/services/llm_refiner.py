@@ -43,8 +43,11 @@ class GroqRefiner:
                     {
                         "role": "system",
                         "content": (
-                            "You rewrite AI safety news summaries for clarity. Return JSON only: "
-                            '[{"index":0,"summary":"...","why_it_matters":"..."}]. Keep each field under 220 characters.'
+                            "You rewrite AI safety news summaries so they sound clear, lightly lively, and easy to skim. "
+                            "Keep the tone smart, warm, and a touch playful, but never cute, breathless, or slangy. "
+                            "Prioritize substance over style. Return JSON only: "
+                            '[{"index":0,"summary":"...","why_it_matters":"..."}]. '
+                            "Keep each field under 220 characters and avoid repeating the title."
                         ),
                     },
                     {"role": "user", "content": json.dumps(prompt_payload)},
@@ -64,4 +67,3 @@ class GroqRefiner:
             item.summary = refined.get("summary", item.summary) or item.summary
             item.why_it_matters = refined.get("why_it_matters", item.why_it_matters) or item.why_it_matters
         return items
-

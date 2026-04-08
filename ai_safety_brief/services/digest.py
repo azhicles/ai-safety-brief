@@ -126,6 +126,7 @@ class DigestPipeline:
     ) -> list[str]:
         lines = [
             "🧠 AI Safety Brief",
+            "A quick lap around the most relevant AI safety stories.",
             f"Top {len(entries)} picks | {now.astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}",
             "",
         ]
