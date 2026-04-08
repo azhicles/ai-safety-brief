@@ -124,4 +124,8 @@ async def test_pipeline_generates_digest_and_respects_seen_window(tmp_path: Path
     assert "\n   " not in first.messages[0]
 
     second = await pipeline.generate_digest(chat, triggered_by="manual")
-    assert second.entries == []
+    assert len(second.entries) == 1
+    assert second.entries[0].item.content_type == "paper"
+
+    third = await pipeline.generate_digest(chat, triggered_by="manual")
+    assert third.entries == []

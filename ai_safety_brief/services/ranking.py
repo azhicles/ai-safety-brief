@@ -238,7 +238,7 @@ def adjusted_selection_score(
     source: SourceDefinition,
     selected: list[CandidateItem],
     remaining_by_type: Counter[str],
-    top_k: int,
+    target_top_k: int,
 ) -> float:
     score = candidate.score
     same_source_count = sum(1 for item in selected if item.source_key == candidate.source_key)
@@ -246,8 +246,8 @@ def adjusted_selection_score(
     score -= same_source_count * 5.0
     score -= same_type_count * 2.0
 
-    desired_papers = max(1, math.ceil(top_k / 4))
-    desired_news = max(2, math.ceil(top_k / 2))
+    desired_papers = max(1, math.ceil(target_top_k / 4))
+    desired_news = max(2, math.ceil(target_top_k / 2))
     if candidate.content_type == "paper" and same_type_count >= desired_papers and remaining_by_type["news"] > 0:
         score -= 8.0
     if candidate.content_type == "news" and same_type_count < desired_news:

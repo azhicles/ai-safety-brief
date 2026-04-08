@@ -254,8 +254,8 @@ async def settings_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     try:
         if subcommand == "k" and len(context.args) >= 2:
             top_k = int(context.args[1])
-            if not 1 <= top_k <= 10:
-                raise ValueError("k must be between 1 and 10.")
+            if not 1 <= top_k <= 15:
+                raise ValueError("k must be between 1 and 15.")
             chat.top_k = top_k
             await runtime.db.update_chat(chat.chat_id, top_k=top_k)
             await update.effective_message.reply_text(f"Top k updated to {top_k}.")

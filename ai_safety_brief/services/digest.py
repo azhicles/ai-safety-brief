@@ -65,17 +65,26 @@ class DigestPipeline:
 
         seen_ids = await self.db.get_seen_item_ids(chat.chat_id, chat.repeat_window_days)
         selected_entries: list[StoredItem] = []
-        selected_candidates = self._select_diverse_candidates(merged, sources, chat.top_k)
-        for candidate in selected_candidates:
+        selected_candidates: list[CandidateItem] = []
+        selection_pool = self._select_diverse_candidates(
+            merged,
+            sources,
+            selection_limit=min(len(merged), max(chat.top_k * 6, 18)),
+            target_top_k=chat.top_k,
+        )
+        for candidate in selection_pool:
             candidate.summary, candidate.why_it_matters = self.summarizer.summarize(candidate)
             stored = await self.db.save_item(candidate)
             if stored.id in seen_ids:
                 continue
             selected_entries.append(stored)
+            selected_candidates.append(candidate)
+            if len(selected_entries) >= chat.top_k:
+                break
 
         if not selected_entries:
             message = (
-                "AI Safety Brief checked the configured sources but did not find enough fresh, high-confidence items "
+                "AI Safety Brief checked the configured sources but did not find enough fresh, relevant items "
                 "for this run."
             )
             await self.db.save_digest_run(
@@ -159,12 +168,13 @@ class DigestPipeline:
         self,
         candidates: list[CandidateItem],
         sources: dict[str, object],
-        top_k: int,
+        selection_limit: int,
+        target_top_k: int,
     ) -> list[CandidateItem]:
         remaining = list(candidates)
         selected: list[CandidateItem] = []
 
-        while remaining and len(selected) < top_k:
+        while remaining and len(selected) < selection_limit:
             remaining_by_type = defaultdict(int)
             for candidate in remaining:
                 remaining_by_type[candidate.content_type] += 1
@@ -176,7 +186,7 @@ class DigestPipeline:
                     sources[candidate.source_key],
                     selected,
                     remaining_by_type,
-                    top_k,
+                    target_top_k,
                 ),
             )
             selected.append(best)
