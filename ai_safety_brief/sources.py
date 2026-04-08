@@ -1,0 +1,236 @@
+"""Source registry for AI Safety Brief."""
+
+from __future__ import annotations
+
+from ai_safety_brief.models import SourceDefinition
+
+DEFAULT_SOURCES: tuple[SourceDefinition, ...] = (
+    SourceDefinition(
+        key="alignment_forum",
+        name="Alignment Forum",
+        mode="rss",
+        url="https://www.alignmentforum.org/feed.xml?view=frontpage",
+        authority_weight=1.3,
+        content_type="opinion",
+    ),
+    SourceDefinition(
+        key="lesswrong",
+        name="LessWrong",
+        mode="rss",
+        url="https://www.lesswrong.com/feed.xml?view=frontpage",
+        authority_weight=1.15,
+        content_type="opinion",
+    ),
+    SourceDefinition(
+        key="ea_forum",
+        name="EA Forum",
+        mode="rss",
+        url="https://forum.effectivealtruism.org/feed.xml?view=frontpage-rss",
+        authority_weight=1.05,
+        content_type="opinion",
+    ),
+    SourceDefinition(
+        key="anthropic_research",
+        name="Anthropic Research",
+        mode="listing",
+        url="https://www.anthropic.com/research",
+        listing_url="https://www.anthropic.com/research",
+        authority_weight=1.4,
+        content_type="news",
+    ),
+    SourceDefinition(
+        key="anthropic_news",
+        name="Anthropic News",
+        mode="listing",
+        url="https://www.anthropic.com/news",
+        listing_url="https://www.anthropic.com/news",
+        authority_weight=1.25,
+        content_type="news",
+    ),
+    SourceDefinition(
+        key="openai_research",
+        name="OpenAI Research",
+        mode="listing",
+        url="https://openai.com/research/index/",
+        listing_url="https://openai.com/research/index/",
+        authority_weight=1.4,
+        content_type="news",
+    ),
+    SourceDefinition(
+        key="openai_news",
+        name="OpenAI Research News",
+        mode="listing",
+        url="https://openai.com/news/research/",
+        listing_url="https://openai.com/news/research/",
+        authority_weight=1.3,
+        content_type="news",
+    ),
+    SourceDefinition(
+        key="deepmind_blog",
+        name="Google DeepMind Blog",
+        mode="listing",
+        url="https://deepmind.google/discover/blog/",
+        listing_url="https://deepmind.google/discover/blog/",
+        authority_weight=1.35,
+        content_type="news",
+    ),
+    SourceDefinition(
+        key="metr_blog",
+        name="METR",
+        mode="listing",
+        url="https://metr.org/blog",
+        listing_url="https://metr.org/blog",
+        authority_weight=1.35,
+        content_type="news",
+    ),
+    SourceDefinition(
+        key="redwood_blog",
+        name="Redwood Research",
+        mode="listing",
+        url="https://blog.redwoodresearch.org/",
+        listing_url="https://blog.redwoodresearch.org/",
+        authority_weight=1.25,
+        content_type="opinion",
+    ),
+    SourceDefinition(
+        key="apollo_blog",
+        name="Apollo Research",
+        mode="listing",
+        url="https://www.apolloresearch.ai/blog",
+        listing_url="https://www.apolloresearch.ai/blog",
+        authority_weight=1.25,
+        content_type="news",
+    ),
+    SourceDefinition(
+        key="cais_blog",
+        name="Center for AI Safety",
+        mode="listing",
+        url="https://safe.ai/blog",
+        listing_url="https://safe.ai/blog",
+        authority_weight=1.3,
+        content_type="news",
+    ),
+    SourceDefinition(
+        key="govai_blog",
+        name="GovAI",
+        mode="listing",
+        url="https://www.governance.ai/blog",
+        listing_url="https://www.governance.ai/blog",
+        authority_weight=1.25,
+        content_type="opinion",
+    ),
+    SourceDefinition(
+        key="law_ai_blog",
+        name="Institute for Law & AI",
+        mode="listing",
+        url="https://law-ai.org/blog/",
+        listing_url="https://law-ai.org/blog/",
+        authority_weight=1.2,
+        content_type="opinion",
+    ),
+    SourceDefinition(
+        key="epoch_ai",
+        name="Epoch AI",
+        mode="listing",
+        url="https://epoch.ai/",
+        listing_url="https://epoch.ai/",
+        authority_weight=1.2,
+        content_type="news",
+    ),
+    SourceDefinition(
+        key="future_of_life",
+        name="Future of Life Institute",
+        mode="listing",
+        url="https://futureoflife.org/ai/",
+        listing_url="https://futureoflife.org/ai/",
+        authority_weight=1.1,
+        content_type="opinion",
+    ),
+    SourceDefinition(
+        key="uk_aisi",
+        name="UK AI Security Institute",
+        mode="listing",
+        url="https://www.aisi.gov.uk/blog",
+        listing_url="https://www.aisi.gov.uk/blog",
+        authority_weight=1.35,
+        content_type="news",
+    ),
+    SourceDefinition(
+        key="ai_safety_newsletter",
+        name="AI Safety Newsletter",
+        mode="listing",
+        url="https://newsletter.safe.ai/",
+        listing_url="https://newsletter.safe.ai/",
+        authority_weight=1.15,
+        content_type="opinion",
+    ),
+    SourceDefinition(
+        key="arxiv_alignment",
+        name="arXiv Alignment",
+        mode="arxiv",
+        url="https://export.arxiv.org/api/query",
+        authority_weight=1.35,
+        content_type="paper",
+        query='all:"AI safety" OR all:alignment OR all:"deceptive alignment" OR all:"AI control"',
+        recency_hours=168,
+    ),
+    SourceDefinition(
+        key="arxiv_evals",
+        name="arXiv Evals & Interpretability",
+        mode="arxiv",
+        url="https://export.arxiv.org/api/query",
+        authority_weight=1.3,
+        content_type="paper",
+        query='all:interpretability OR all:"model evaluations" OR all:"AI oversight" OR all:"red teaming"',
+        recency_hours=168,
+    ),
+)
+
+
+def build_x_sources(base_url: str, accounts: tuple[str, ...]) -> list[SourceDefinition]:
+    if not base_url or not accounts:
+        return []
+
+    sources: list[SourceDefinition] = []
+    for account in accounts:
+        sources.append(
+            SourceDefinition(
+                key=f"x_{account.lower()}",
+                name=f"X @{account}",
+                mode="x_rss",
+                url=f"{base_url}/{account}",
+                authority_weight=1.05,
+                content_type="news",
+                enabled_by_default=False,
+                recency_hours=48,
+            )
+        )
+    return sources
+
+
+AI_SAFETY_KEYWORDS: tuple[str, ...] = (
+    "ai safety",
+    "alignment",
+    "misalignment",
+    "control",
+    "oversight",
+    "interpretability",
+    "monitoring",
+    "robustness",
+    "red team",
+    "eval",
+    "evaluation",
+    "deception",
+    "governance",
+    "policy",
+    "model welfare",
+    "constitutional",
+    "alignment tax",
+    "capabilities control",
+    "scalable oversight",
+    "frontier model",
+    "system card",
+    "biosecurity",
+    "cybersecurity",
+)
+

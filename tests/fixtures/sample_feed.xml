@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Sample Feed</title>
+    <item>
+      <title>New interpretability benchmark for deceptive behavior</title>
+      <link>https://example.org/posts/interpretability-benchmark</link>
+      <pubDate>Tue, 08 Apr 2026 08:00:00 GMT</pubDate>
+      <description>Researchers release an evaluation suite for monitoring deceptive alignment signals.</description>
+    </item>
+    <item>
+      <title>General AI product update</title>
+      <link>https://example.org/posts/product-update</link>
+      <pubDate>Mon, 07 Apr 2026 08:00:00 GMT</pubDate>
+      <description>This one should be filtered out by relevance scoring.</description>
+    </item>
+  </channel>
+</rss>
+
