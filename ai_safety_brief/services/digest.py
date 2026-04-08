@@ -18,7 +18,7 @@ from ai_safety_brief.services.ranking import (
     score_candidate,
 )
 from ai_safety_brief.services.summarizer import Summarizer
-from ai_safety_brief.utils.text import shorten, split_for_telegram
+from ai_safety_brief.utils.text import normalize_whitespace, shorten, split_for_telegram
 
 logger = logging.getLogger(__name__)
 
@@ -140,27 +140,18 @@ class DigestPipeline:
             "",
         ]
 
-        grouped: dict[str, list[DigestEntry]] = defaultdict(list)
-        for entry in entries:
-            grouped[entry.section].append(entry)
-
-        counter = 1
-        for section in ("📰 News", "📄 Papers", "💭 Opinion"):
-            section_entries = grouped.get(section)
-            if not section_entries:
-                continue
-            lines.append(section)
-            for entry in section_entries:
-                headline_emoji = self._entry_emoji(entry)
-                lines.append(f"{counter}. {headline_emoji} {entry.item.title}")
-                paragraph = (
-                    f"{shorten(entry.item.summary, 180)} "
-                    f"{shorten(entry.item.why_it_matters, 120)}"
-                ).strip()
-                lines.append(paragraph)
-                lines.append(f"{entry.item.source_name} | {entry.item.canonical_url}")
-                lines.append("")
-                counter += 1
+        for entry in sorted(entries, key=lambda digest_entry: digest_entry.rank):
+            headline_emoji = self._entry_emoji(entry)
+            lines.append(f"{entry.rank}. {entry.item.title} {headline_emoji}")
+            lines.append("")
+            paragraph = shorten(
+                f"{normalize_whitespace(entry.item.summary)} {normalize_whitespace(entry.item.why_it_matters)}",
+                170,
+            )
+            lines.append(paragraph)
+            lines.append("")
+            lines.append(f"{entry.item.source_name} | {entry.item.canonical_url}")
+            lines.append("")
 
         footer = ["use /brief for a refresh or /settings to tune k, cadence, timezone, and sources."]
         text = "\n".join(lines + footer).strip()
