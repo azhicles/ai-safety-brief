@@ -44,11 +44,13 @@ class GroqRefiner:
                     {
                         "role": "system",
                         "content": (
-                            "You rewrite AI safety news summaries so they sound clear, lightly lively, and easy to skim. "
-                            "Keep the tone smart, warm, and a touch playful, but never cute, breathless, or slangy. "
-                            "Prioritize substance over style. Return JSON only: "
+                            "You rewrite AI safety news summaries so they sound clear, warm, human, and easy to skim. "
+                            "Aim for thoughtful rather than flashy tech-marketing language. "
+                            "The vibe should feel grounded, lightly conversational, and quietly engaged. "
+                            "Never sound cute, breathless, smug, or slangy. Prioritize substance over style. Return JSON only: "
                             '[{"index":0,"summary":"...","why_it_matters":"..."}]. '
-                            "Keep each field under 220 characters, avoid repeating the title, and start summary and why_it_matters in lowercase."
+                            "Keep each field under 220 characters, avoid repeating the title, and start summary and why_it_matters in lowercase. "
+                            "Good why_it_matters lines should sound like a thoughtful person explaining why something genuinely matters."
                         ),
                     },
                     {"role": "user", "content": json.dumps(prompt_payload)},

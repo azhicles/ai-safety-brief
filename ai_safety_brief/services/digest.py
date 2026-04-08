@@ -127,7 +127,7 @@ class DigestPipeline:
         lines = [
             "🧠 AI Safety Brief",
             "a quick lap around the most relevant ai safety stories.",
-            f"Top {len(entries)} picks | {now.astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}",
+            f"top {len(entries)} picks | {now.astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}",
             "",
         ]
 
@@ -144,12 +144,10 @@ class DigestPipeline:
             for entry in section_entries:
                 headline_emoji = self._entry_emoji(entry)
                 lines.append(f"{counter}. {headline_emoji} {entry.item.title}")
-                compact_line = (
-                    f"{shorten(entry.item.summary, 140)} "
-                    f"why: {shorten(entry.item.why_it_matters, 90)}"
-                )
-                lines.append(f"   {compact_line}")
-                lines.append(f"   {entry.item.source_name} | {entry.item.canonical_url}")
+                lines.append(f"summary: {shorten(entry.item.summary, 180)}")
+                lines.append(f"why it matters: {shorten(entry.item.why_it_matters, 120)}")
+                lines.append(f"from: {entry.item.source_name}")
+                lines.append(entry.item.canonical_url)
                 lines.append("")
                 counter += 1
 

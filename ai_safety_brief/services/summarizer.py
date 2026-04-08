@@ -15,15 +15,42 @@ from ai_safety_brief.utils.text import (
 )
 
 THEME_TEMPLATES = (
-    ("governance", "Could shape how frontier systems are governed, audited, or rolled out."),
-    ("policy", "Changes the policy backdrop around advanced AI, which can move the whole field."),
-    ("eval", "Makes risky model behavior easier to catch before anyone hits deploy."),
-    ("red team", "Gives teams a sharper way to probe for failure modes and misuse."),
-    ("interpretability", "Could make model behavior a bit less mysterious and a lot more inspectable."),
-    ("oversight", "Strengthens the practical toolkit for keeping humans in the loop."),
-    ("alignment", "Sits close to the core alignment question, not just the edges of it."),
-    ("control", "Adds concrete ideas for keeping powerful systems inside safer bounds."),
-    ("robustness", "Helps test whether systems stay dependable when the pressure goes up."),
+    (
+        "governance",
+        "what stands out is that it turns safety into real deployment choices, audits, and rules instead of vague good intentions.",
+    ),
+    (
+        "policy",
+        "it could quietly shape the rules of the road for advanced ai, and that often matters more than the splashier headlines.",
+    ),
+    (
+        "eval",
+        "what makes this feel useful is that it turns safety into something teams can actually test before they deploy.",
+    ),
+    (
+        "red team",
+        "this feels useful in a grounded way: better probing means a better shot at catching ugly surprises early.",
+    ),
+    (
+        "interpretability",
+        "what makes this notable is that it could make model behavior a little less opaque and a lot easier to inspect.",
+    ),
+    (
+        "oversight",
+        "this is the kind of work that helps humans stay meaningfully in the loop instead of just nominally in charge.",
+    ),
+    (
+        "alignment",
+        "it stays close to the real alignment problem, not just the easier edges around it.",
+    ),
+    (
+        "control",
+        "it pushes on the unglamorous but essential question of how to keep capable systems inside safer bounds.",
+    ),
+    (
+        "robustness",
+        "it is trying to answer a very practical question: do these systems stay dependable once the pressure goes up?",
+    ),
 )
 
 
@@ -86,17 +113,22 @@ class Summarizer:
             if keyword in text:
                 return template
         if item.content_type == "paper":
-            return "Adds evidence or tools that other AI safety work can actually build on."
+            return "if it holds up, it gives the field something more solid to build on than intuition alone."
         if item.content_type == "opinion":
-            return "Sharpens the case for where attention and effort should go next."
-        return "Could change how frontier AI gets built, tested, or governed in practice."
+            return "even when it is speculative, it can still sharpen where attention and effort should go next."
+        return "what makes this worth watching is that it could change how frontier ai gets built, tested, or governed in practice."
 
     def _comparison_key(self, sentence: str) -> str:
         return normalize_whitespace(sentence).lower().rstrip(".!?")
 
     def _polish_summary(self, summary: str) -> str:
         cleaned = normalize_whitespace(summary)
-        cleaned = cleaned.replace("This paper", "The paper").replace("This post", "The post")
+        cleaned = cleaned.replace("This paper", "a new paper").replace("This post", "a new post")
+        cleaned = cleaned.replace("The paper studies", "a new paper looks at")
+        cleaned = cleaned.replace("The paper shows", "a new paper shows")
+        cleaned = cleaned.replace("The paper introduces", "a new paper introduces")
+        cleaned = cleaned.replace("The post argues", "a new post argues")
+        cleaned = cleaned.replace("The post lays out", "a new post lays out")
         cleaned = lowercase_sentence_start(cleaned)
         if cleaned and cleaned[-1] not in ".!?":
             cleaned += "."
