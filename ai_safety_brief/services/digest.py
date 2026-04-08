@@ -126,7 +126,7 @@ class DigestPipeline:
     ) -> list[str]:
         lines = [
             "🧠 AI Safety Brief",
-            "A quick lap around the most relevant AI safety stories.",
+            "a quick lap around the most relevant ai safety stories.",
             f"Top {len(entries)} picks | {now.astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}",
             "",
         ]
@@ -146,14 +146,14 @@ class DigestPipeline:
                 lines.append(f"{counter}. {headline_emoji} {entry.item.title}")
                 compact_line = (
                     f"{shorten(entry.item.summary, 140)} "
-                    f"Why: {shorten(entry.item.why_it_matters, 90)}"
+                    f"why: {shorten(entry.item.why_it_matters, 90)}"
                 )
                 lines.append(f"   {compact_line}")
                 lines.append(f"   {entry.item.source_name} | {entry.item.canonical_url}")
                 lines.append("")
                 counter += 1
 
-        footer = ["Use /brief for a refresh or /settings to tune k, cadence, timezone, and sources."]
+        footer = ["use /brief for a refresh or /settings to tune k, cadence, timezone, and sources."]
         text = "\n".join(lines + footer).strip()
         return split_for_telegram(text, self.settings.digest_message_limit)
 

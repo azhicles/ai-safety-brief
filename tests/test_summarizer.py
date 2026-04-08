@@ -19,4 +19,6 @@ def test_summarizer_extracts_high_signal_sentences():
     summary, why = Summarizer().summarize(item)
     assert "autonomous coding agents" in summary.lower()
     assert "catch" in why.lower() or "risky" in why.lower()
+    assert summary[0].islower()
+    assert why[0].islower()
     assert not why.startswith("This matters because")

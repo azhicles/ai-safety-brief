@@ -8,6 +8,7 @@ import logging
 from groq import AsyncGroq
 
 from ai_safety_brief.models import CandidateItem
+from ai_safety_brief.utils.text import lowercase_sentence_start
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +48,7 @@ class GroqRefiner:
                             "Keep the tone smart, warm, and a touch playful, but never cute, breathless, or slangy. "
                             "Prioritize substance over style. Return JSON only: "
                             '[{"index":0,"summary":"...","why_it_matters":"..."}]. '
-                            "Keep each field under 220 characters and avoid repeating the title."
+                            "Keep each field under 220 characters, avoid repeating the title, and start summary and why_it_matters in lowercase."
                         ),
                     },
                     {"role": "user", "content": json.dumps(prompt_payload)},
@@ -64,6 +65,8 @@ class GroqRefiner:
             refined = by_index.get(index)
             if not refined:
                 continue
-            item.summary = refined.get("summary", item.summary) or item.summary
-            item.why_it_matters = refined.get("why_it_matters", item.why_it_matters) or item.why_it_matters
+            item.summary = lowercase_sentence_start(refined.get("summary", item.summary) or item.summary)
+            item.why_it_matters = lowercase_sentence_start(
+                refined.get("why_it_matters", item.why_it_matters) or item.why_it_matters
+            )
         return items

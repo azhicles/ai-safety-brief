@@ -58,3 +58,14 @@ def split_for_telegram(text: str, limit: int) -> list[str]:
     if remaining:
         chunks.append(remaining)
     return chunks
+
+
+def lowercase_sentence_start(text: str) -> str:
+    clean = normalize_whitespace(text)
+    if not clean:
+        return clean
+    match = re.search(r"[A-Za-z]+", clean)
+    if not match:
+        return clean
+    start, end = match.span()
+    return clean[:start] + clean[start:end].lower() + clean[end:]

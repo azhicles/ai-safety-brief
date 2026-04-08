@@ -6,7 +6,13 @@ from collections import Counter
 
 from ai_safety_brief.models import CandidateItem
 from ai_safety_brief.sources import AI_SAFETY_KEYWORDS
-from ai_safety_brief.utils.text import normalize_whitespace, shorten, split_sentences, words
+from ai_safety_brief.utils.text import (
+    lowercase_sentence_start,
+    normalize_whitespace,
+    shorten,
+    split_sentences,
+    words,
+)
 
 THEME_TEMPLATES = (
     ("governance", "Could shape how frontier systems are governed, audited, or rolled out."),
@@ -91,12 +97,14 @@ class Summarizer:
     def _polish_summary(self, summary: str) -> str:
         cleaned = normalize_whitespace(summary)
         cleaned = cleaned.replace("This paper", "The paper").replace("This post", "The post")
+        cleaned = lowercase_sentence_start(cleaned)
         if cleaned and cleaned[-1] not in ".!?":
             cleaned += "."
         return cleaned
 
     def _polish_why(self, why: str) -> str:
         cleaned = normalize_whitespace(why)
+        cleaned = lowercase_sentence_start(cleaned)
         if cleaned and cleaned[-1] not in ".!?":
             cleaned += "."
         return cleaned
