@@ -153,10 +153,12 @@ class DigestPipeline:
             for entry in section_entries:
                 headline_emoji = self._entry_emoji(entry)
                 lines.append(f"{counter}. {headline_emoji} {entry.item.title}")
-                lines.append(f"summary: {shorten(entry.item.summary, 180)}")
-                lines.append(f"why it matters: {shorten(entry.item.why_it_matters, 120)}")
-                lines.append(f"from: {entry.item.source_name}")
-                lines.append(entry.item.canonical_url)
+                paragraph = (
+                    f"{shorten(entry.item.summary, 180)} "
+                    f"{shorten(entry.item.why_it_matters, 120)}"
+                ).strip()
+                lines.append(paragraph)
+                lines.append(f"{entry.item.source_name} | {entry.item.canonical_url}")
                 lines.append("")
                 counter += 1
 

@@ -118,9 +118,10 @@ async def test_pipeline_generates_digest_and_respects_seen_window(tmp_path: Path
     assert "AI Safety Brief" in first.messages[0]
     assert "1. 🚨 Project Glasswing" in first.messages[0]
     assert "📰 News" in first.messages[0]
-    assert "\nsummary: " in first.messages[0]
-    assert "\nwhy it matters: " in first.messages[0]
-    assert "\nfrom: " in first.messages[0]
+    assert "\nsummary: " not in first.messages[0]
+    assert "\nwhy it matters: " not in first.messages[0]
+    assert "\nfrom: " not in first.messages[0]
+    assert "Anthropic News | https://www.anthropic.com/news/project-glasswing" in first.messages[0]
     assert "\n   " not in first.messages[0]
 
     second = await pipeline.generate_digest(chat, triggered_by="manual")
