@@ -8,7 +8,8 @@ import math
 
 from rapidfuzz import fuzz
 
-from ai_safety_brief.models import CandidateItem, SourceDefinition
+from ai_safety_brief.models import CandidateItem, ChatSettings, SourceDefinition
+from ai_safety_brief.personalization import infer_topics
 from ai_safety_brief.sources import AI_SAFETY_KEYWORDS
 from ai_safety_brief.utils.text import normalize_url, normalize_whitespace, words
 
@@ -143,11 +144,18 @@ GENERIC_RELEVANCE_TERMS = (
 )
 
 
-def score_candidate(candidate: CandidateItem, source: SourceDefinition, now: datetime) -> float:
+def score_candidate(
+    candidate: CandidateItem,
+    source: SourceDefinition,
+    now: datetime,
+    chat: ChatSettings | None = None,
+) -> float:
     title_text = normalize_whitespace(candidate.title.lower())
     body_text = normalize_whitespace(
         f"{candidate.excerpt} {candidate.raw_text[:1200]}".lower()
     )
+    topics, strongest_topic, topic_scores = infer_topics(candidate.title, candidate.excerpt, candidate.raw_text)
+    matched_focus_topics = [topic for topic in topics if chat and topic in chat.focus_topics]
 
     keyword_hits = sum(1 for keyword in AI_SAFETY_KEYWORDS if keyword in body_text)
     title_hits = sum(1 for keyword in AI_SAFETY_KEYWORDS if keyword in title_text)
@@ -155,39 +163,101 @@ def score_candidate(candidate: CandidateItem, source: SourceDefinition, now: dat
     body_words = Counter(words(body_text))
     overlap = sum(min(title_words[token], body_words[token]) for token in title_words)
 
-    score = source.authority_weight * 10.0
-    score += title_hits * 4.0
-    score += keyword_hits * 1.1
-    score += overlap * 0.25
+    source_authority_boost = source.authority_weight * 10.0
+    title_keyword_boost = title_hits * 4.0
+    body_keyword_boost = keyword_hits * 1.1
+    overlap_boost = overlap * 0.25
+
+    score = source_authority_boost
+    score += title_keyword_boost
+    score += body_keyword_boost
+    score += overlap_boost
 
     announcement_hits = sum(1 for term in ANNOUNCEMENT_TERMS if term in title_text)
     signal_hits = sum(1 for term in HIGH_SIGNAL_TERMS if term in f"{title_text} {body_text}")
-    score += announcement_hits * 3.0
-    score += signal_hits * 1.3
+    announcement_boost = announcement_hits * 3.0
+    signal_boost = signal_hits * 1.3
+    major_news_boost = 0.0
+
+    score += announcement_boost
+    score += signal_boost
     if source.key in MAJOR_NEWS_SOURCES:
-        score += announcement_hits * 4.5
-        score += signal_hits * 0.8
+        major_news_boost += announcement_hits * 4.5
+        major_news_boost += signal_hits * 0.8
+        score += major_news_boost
 
+    content_type_boost = 0.0
     if candidate.content_type == "paper":
-        score -= 1.5
+        content_type_boost -= 1.5
     elif candidate.content_type == "opinion":
-        score += 0.5
+        content_type_boost += 0.5
     else:
-        score += 3.0
+        content_type_boost += 3.0
+    score += content_type_boost
 
+    recency_boost = 0.0
+    age_hours = None
     if candidate.published_at is not None:
         age_hours = max(
             0.0,
             (now - candidate.published_at.astimezone(timezone.utc)).total_seconds() / 3600,
         )
-        score += max(0.0, 10.0 - age_hours / 10.0)
+        recency_boost = max(0.0, 10.0 - age_hours / 10.0)
+        score += recency_boost
 
+    trusted_source_boost = 0.0
     if source.key in TRUSTED_ALWAYS_RELEVANT:
-        score += 2.0
+        trusted_source_boost += 2.0
+        score += trusted_source_boost
+    major_source_news_boost = 0.0
     if source.key in MAJOR_NEWS_SOURCES and candidate.content_type == "news":
-        score += 6.0
+        major_source_news_boost += 6.0
+        score += major_source_news_boost
+    arxiv_penalty = 0.0
     if candidate.content_type == "paper" and source.key.startswith("arxiv_"):
-        score -= 1.0
+        arxiv_penalty -= 1.0
+        score += arxiv_penalty
+
+    topic_focus_boost = 0.0
+    content_mix_boost = 0.0
+    if chat:
+        if chat.focus_topics:
+            if matched_focus_topics:
+                topic_focus_boost += 5.0 + 1.5 * len(matched_focus_topics)
+            else:
+                topic_focus_boost -= 2.0
+        content_mix_boost += _content_mix_boost(candidate, topics, chat.content_mix)
+        score += topic_focus_boost + content_mix_boost
+
+    candidate.metadata.update(
+        {
+            "topics": topics,
+            "strongest_topic": strongest_topic or "",
+            "topic_scores": topic_scores,
+            "matched_focus_topics": matched_focus_topics,
+            "source_authority": round(source.authority_weight, 3),
+            "age_hours": round(age_hours, 2) if age_hours is not None else None,
+            "announcement_hits": announcement_hits,
+            "signal_hits": signal_hits,
+            "major_news_source": source.key in MAJOR_NEWS_SOURCES,
+            "source_authority_boost": round(source_authority_boost, 2),
+            "title_keyword_boost": round(title_keyword_boost, 2),
+            "body_keyword_boost": round(body_keyword_boost, 2),
+            "overlap_boost": round(overlap_boost, 2),
+            "announcement_boost": round(announcement_boost, 2),
+            "signal_boost": round(signal_boost, 2),
+            "major_news_boost": round(major_news_boost + major_source_news_boost, 2),
+            "content_type_boost": round(content_type_boost, 2),
+            "recency_boost": round(recency_boost, 2),
+            "topic_focus_boost": round(topic_focus_boost, 2),
+            "content_mix_boost": round(content_mix_boost, 2),
+            "trusted_source_boost": round(trusted_source_boost, 2),
+            "arxiv_penalty": round(arxiv_penalty, 2),
+        }
+    )
+    candidate.metadata["score_reasons"] = build_score_reasons(candidate, chat)
+    candidate.metadata["final_score"] = round(score, 2)
+    candidate.score = score
 
     return score
 
@@ -239,6 +309,7 @@ def adjusted_selection_score(
     selected: list[CandidateItem],
     remaining_by_type: Counter[str],
     target_top_k: int,
+    chat: ChatSettings | None = None,
 ) -> float:
     score = candidate.score
     same_source_count = sum(1 for item in selected if item.source_key == candidate.source_key)
@@ -246,14 +317,120 @@ def adjusted_selection_score(
     score -= same_source_count * 5.0
     score -= same_type_count * 2.0
 
-    desired_papers = max(1, math.ceil(target_top_k / 4))
-    desired_news = max(2, math.ceil(target_top_k / 2))
+    desired_papers, desired_news, desired_opinion = _desired_mix_counts(target_top_k, chat.content_mix if chat else "balanced")
     if candidate.content_type == "paper" and same_type_count >= desired_papers and remaining_by_type["news"] > 0:
         score -= 8.0
     if candidate.content_type == "news" and same_type_count < desired_news:
         score += 4.0
+    if candidate.content_type == "opinion" and same_type_count < desired_opinion:
+        score += 2.0
     if source.key in MAJOR_NEWS_SOURCES and candidate.content_type == "news":
         score += 3.0
     if candidate.content_type == "opinion" and remaining_by_type["news"] == 0:
         score += 1.0
     return score
+
+
+def passes_alert_threshold(
+    candidate: CandidateItem,
+    source: SourceDefinition,
+    chat: ChatSettings,
+    now: datetime,
+) -> bool:
+    if chat.alert_mode == "off":
+        return False
+    if candidate.published_at is None:
+        return False
+
+    age_hours = max(
+        0.0,
+        (now - candidate.published_at.astimezone(timezone.utc)).total_seconds() / 3600,
+    )
+    announcement_hits = int(candidate.metadata.get("announcement_hits", 0))
+    signal_hits = int(candidate.metadata.get("signal_hits", 0))
+    combined_signal = announcement_hits + signal_hits
+
+    if chat.alert_mode == "strict":
+        return (
+            candidate.score >= 40
+            and age_hours <= 24
+            and (source.key in MAJOR_NEWS_SOURCES or combined_signal >= 2)
+        )
+
+    if chat.alert_mode == "moderate":
+        if candidate.score < 34 or age_hours > 24:
+            return False
+        if candidate.content_type in {"paper", "opinion"}:
+            return source.authority_weight >= 1.2 or combined_signal >= 2
+        return True
+
+    return candidate.score >= 30 and age_hours <= 36
+
+
+def build_score_reasons(candidate: CandidateItem, chat: ChatSettings | None = None) -> list[str]:
+    metadata = candidate.metadata
+    reasons: list[str] = []
+    source_authority = float(metadata.get("source_authority", 0.0) or 0.0)
+    if source_authority:
+        reasons.append(f"source authority {source_authority:.2f}")
+    topics = list(metadata.get("topics", []))
+    if topics:
+        reasons.append(f"topic match: {', '.join(topics[:2])}")
+    matched_focus = list(metadata.get("matched_focus_topics", []))
+    if matched_focus:
+        reasons.append(f"your focus topics: {', '.join(matched_focus[:2])}")
+    if float(metadata.get("recency_boost", 0.0) or 0.0) > 0:
+        reasons.append("very recent")
+    if float(metadata.get("major_news_boost", 0.0) or 0.0) > 0:
+        reasons.append("major-news boost")
+    if chat and float(metadata.get("content_mix_boost", 0.0) or 0.0) > 0:
+        reasons.append(f"{chat.content_mix} mix boost")
+    return reasons
+
+
+def build_item_explanation(candidate_or_item, chat: ChatSettings | None = None) -> str:
+    metadata = getattr(candidate_or_item, "metadata", {}) or {}
+    reasons = metadata.get("score_reasons") or build_score_reasons(candidate_or_item, chat)
+    score = metadata.get("final_score")
+    lines = ["why this was picked:"]
+    if reasons:
+        lines.extend(f"- {reason}" for reason in reasons[:5])
+    else:
+        lines.append("- source authority, recency, and ai-safety relevance")
+    if score is not None:
+        lines.append(f"- final score: {score}")
+    return "\n".join(lines)
+
+
+def _content_mix_boost(candidate: CandidateItem, topics: list[str], content_mix: str) -> float:
+    boost = 0.0
+    if content_mix == "news-heavy":
+        if candidate.content_type == "news":
+            boost += 2.5
+        elif candidate.content_type == "paper":
+            boost -= 1.5
+        else:
+            boost -= 0.5
+    elif content_mix == "papers-heavy":
+        if candidate.content_type == "paper":
+            boost += 2.5
+        elif candidate.content_type == "news":
+            boost -= 0.5
+    elif content_mix == "policy-heavy":
+        if candidate.content_type == "opinion":
+            boost += 2.5
+        if any(topic in {"governance", "security"} for topic in topics):
+            boost += 1.5
+        if candidate.content_type == "paper":
+            boost -= 0.5
+    return boost
+
+
+def _desired_mix_counts(target_top_k: int, content_mix: str) -> tuple[int, int, int]:
+    if content_mix == "news-heavy":
+        return max(1, math.ceil(target_top_k / 6)), max(2, math.ceil(target_top_k * 0.7)), 1
+    if content_mix == "papers-heavy":
+        return max(1, math.ceil(target_top_k / 2)), max(1, math.ceil(target_top_k / 3)), 1
+    if content_mix == "policy-heavy":
+        return max(1, math.ceil(target_top_k / 4)), max(1, math.ceil(target_top_k / 3)), max(1, math.ceil(target_top_k / 3))
+    return max(1, math.ceil(target_top_k / 4)), max(2, math.ceil(target_top_k / 2)), 1

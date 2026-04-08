@@ -9,6 +9,8 @@ from typing import Literal
 ScheduleType = Literal["daily", "hourly", "weekly"]
 ContentType = Literal["news", "paper", "opinion"]
 SourceMode = Literal["rss", "listing", "arxiv", "x_rss"]
+ContentMix = Literal["balanced", "news-heavy", "papers-heavy", "policy-heavy"]
+AlertMode = Literal["off", "strict", "moderate", "broad"]
 
 
 @dataclass
@@ -24,6 +26,11 @@ class ChatSettings:
     send_hour: int = 19
     send_minute: int = 0
     disabled_sources: list[str] = field(default_factory=list)
+    focus_topics: list[str] = field(default_factory=list)
+    content_mix: ContentMix = "balanced"
+    alert_mode: AlertMode = "off"
+    quiet_hours_start: str | None = None
+    quiet_hours_end: str | None = None
     repeat_window_days: int = 7
     next_run_at: datetime | None = None
     last_digest_at: datetime | None = None
@@ -92,3 +99,9 @@ class DigestResult:
     messages: list[str]
     generated_at: datetime
 
+
+@dataclass
+class AlertResult:
+    item: StoredItem
+    message: str
+    generated_at: datetime

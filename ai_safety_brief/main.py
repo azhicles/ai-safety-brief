@@ -5,19 +5,22 @@ from __future__ import annotations
 import logging
 
 from telegram import Update
-from telegram.ext import Application, CommandHandler
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler
 
 from ai_safety_brief.bot.handlers import (
     brief_handler,
+    callback_handler,
     get_runtime,
     help_handler,
     history_handler,
+    more_handler,
     pause_handler,
     resume_handler,
     settings_handler,
     sources_handler,
     start_handler,
     status_handler,
+    why_handler,
 )
 from ai_safety_brief.bot.runtime import Runtime
 from ai_safety_brief.bot.scheduler import schedule_jobs
@@ -72,12 +75,15 @@ def main() -> None:
     application.add_handler(CommandHandler("start", start_handler))
     application.add_handler(CommandHandler("help", help_handler))
     application.add_handler(CommandHandler("brief", brief_handler))
+    application.add_handler(CommandHandler("more", more_handler))
+    application.add_handler(CommandHandler("why", why_handler))
     application.add_handler(CommandHandler("status", status_handler))
     application.add_handler(CommandHandler("history", history_handler))
     application.add_handler(CommandHandler("sources", sources_handler))
     application.add_handler(CommandHandler("settings", settings_handler))
     application.add_handler(CommandHandler("pause", pause_handler))
     application.add_handler(CommandHandler("resume", resume_handler))
+    application.add_handler(CallbackQueryHandler(callback_handler))
     application.add_error_handler(error_handler)
 
     logger.info("Starting AI Safety Brief")

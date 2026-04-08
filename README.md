@@ -11,8 +11,13 @@
   - timezone
   - cadence
   - source enable/disable toggles
+  - focus topics
+  - content mix presets
+  - alert mode
+  - quiet hours
   - repeat window to avoid resurfacing the same items too quickly
-- Separates the digest into `News`, `Papers`, and `Opinion`
+- Supports inline control-panel buttons inside Telegram for tuning the brief
+- Sends optional high-signal alerts between digests with anti-spam guardrails
 - Stores chat settings, seen history, and run history in SQLite
 - Runs as a polling worker, which makes it easy to keep alive on Fly.io
 - Uses extractive summarization by default, with optional free-tier Groq refinement if you provide a key
@@ -52,10 +57,16 @@ Best-effort X support is included through configurable RSS-style mirrors via `X_
 - `/status` shows the active settings and next run
 - `/history` shows recent digest runs
 - `/sources` lists source toggles
+- `/more` shows more ranked results below the main cutoff
+- `/why 2` explains why a specific ranked item was picked
 - `/pause` pauses scheduled sends
 - `/resume` resumes scheduled sends
 - `/settings` shows current settings
 - `/settings k 5`
+- `/settings topics alignment,evals,security`
+- `/settings mix news-heavy`
+- `/settings alerts moderate`
+- `/settings quiet-hours 23:00-07:00`
 - `/settings timezone Asia/Singapore`
 - `/settings cadence daily 19:00`
 - `/settings cadence hourly 6`

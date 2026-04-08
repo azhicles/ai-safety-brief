@@ -107,8 +107,22 @@ class Database:
                     FOREIGN KEY (chat_id) REFERENCES chats(chat_id),
                     FOREIGN KEY (item_id) REFERENCES items(id)
                 );
+
+                CREATE TABLE IF NOT EXISTS chat_alert_items (
+                    chat_id INTEGER NOT NULL,
+                    item_id INTEGER NOT NULL,
+                    alerted_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    PRIMARY KEY (chat_id, item_id),
+                    FOREIGN KEY (chat_id) REFERENCES chats(chat_id),
+                    FOREIGN KEY (item_id) REFERENCES items(id)
+                );
                 """
             )
+            await self._ensure_chat_column(db, "focus_topics", "TEXT NOT NULL DEFAULT '[]'")
+            await self._ensure_chat_column(db, "content_mix", "TEXT NOT NULL DEFAULT 'balanced'")
+            await self._ensure_chat_column(db, "alert_mode", "TEXT NOT NULL DEFAULT 'off'")
+            await self._ensure_chat_column(db, "quiet_hours_start", "TEXT DEFAULT NULL")
+            await self._ensure_chat_column(db, "quiet_hours_end", "TEXT DEFAULT NULL")
             await db.commit()
 
     async def upsert_chat(
@@ -124,9 +138,11 @@ class Database:
                 """
                 INSERT INTO chats (
                     chat_id, chat_type, chat_title, timezone, top_k, schedule_type,
-                    schedule_value, send_hour, send_minute, repeat_window_days, next_run_at
+                    schedule_value, send_hour, send_minute, disabled_sources, focus_topics,
+                    content_mix, alert_mode, quiet_hours_start, quiet_hours_end,
+                    repeat_window_days, next_run_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(chat_id) DO UPDATE SET
                     chat_type=excluded.chat_type,
                     chat_title=excluded.chat_title,
@@ -142,6 +158,12 @@ class Database:
                     defaults["schedule_value"],
                     defaults["send_hour"],
                     defaults["send_minute"],
+                    defaults["disabled_sources"],
+                    defaults["focus_topics"],
+                    defaults["content_mix"],
+                    defaults["alert_mode"],
+                    defaults["quiet_hours_start"],
+                    defaults["quiet_hours_end"],
                     defaults["repeat_window_days"],
                     defaults["next_run_at"],
                 ),
@@ -185,6 +207,21 @@ class Database:
                 ORDER BY next_run_at ASC
                 """,
                 (_to_iso(now_utc),),
+            )
+        return [self._row_to_chat(row) for row in rows]
+
+    async def list_alert_enabled_chats(self) -> list[ChatSettings]:
+        async with self.connect() as db:
+            db.row_factory = aiosqlite.Row
+            rows = await self._fetchall(
+                db,
+                """
+                SELECT * FROM chats
+                WHERE is_active = 1
+                  AND alert_mode != 'off'
+                ORDER BY chat_id ASC
+                """,
+                (),
             )
         return [self._row_to_chat(row) for row in rows]
 
@@ -281,6 +318,60 @@ class Database:
                 )
             await db.commit()
 
+    async def get_alerted_item_ids(self, chat_id: int) -> set[int]:
+        async with self.connect() as db:
+            db.row_factory = aiosqlite.Row
+            rows = await self._fetchall(
+                db,
+                """
+                SELECT item_id FROM chat_alert_items
+                WHERE chat_id = ?
+                """,
+                (chat_id,),
+            )
+        return {int(row["item_id"]) for row in rows}
+
+    async def mark_alerted(self, chat_id: int, item_id: int, alerted_at: datetime) -> None:
+        async with self.connect() as db:
+            db.row_factory = aiosqlite.Row
+            await db.execute(
+                """
+                INSERT INTO chat_alert_items (chat_id, item_id, alerted_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(chat_id, item_id) DO UPDATE SET alerted_at = excluded.alerted_at
+                """,
+                (chat_id, item_id, _to_iso(alerted_at)),
+            )
+            await db.commit()
+
+    async def count_alerts_since(self, chat_id: int, since: datetime) -> int:
+        async with self.connect() as db:
+            db.row_factory = aiosqlite.Row
+            row = await self._fetchone(
+                db,
+                """
+                SELECT COUNT(*) AS count
+                FROM chat_alert_items
+                WHERE chat_id = ? AND alerted_at >= ?
+                """,
+                (chat_id, _to_iso(since)),
+            )
+        return int(row["count"]) if row else 0
+
+    async def latest_alert_at(self, chat_id: int) -> datetime | None:
+        async with self.connect() as db:
+            db.row_factory = aiosqlite.Row
+            row = await self._fetchone(
+                db,
+                """
+                SELECT MAX(alerted_at) AS alerted_at
+                FROM chat_alert_items
+                WHERE chat_id = ?
+                """,
+                (chat_id,),
+            )
+        return _from_iso(row["alerted_at"]) if row and row["alerted_at"] else None
+
     async def save_digest_run(
         self,
         chat_id: int,
@@ -323,6 +414,85 @@ class Database:
         chat = await self.get_chat(chat_id)
         return chat.disabled_sources if chat else []
 
+    async def get_item(self, item_id: int) -> StoredItem | None:
+        return await self._get_item_by_id(item_id)
+
+    async def latest_run_row(self, chat_id: int) -> aiosqlite.Row | None:
+        async with self.connect() as db:
+            db.row_factory = aiosqlite.Row
+            return await self._fetchone(
+                db,
+                """
+                SELECT * FROM digest_runs
+                WHERE chat_id = ? AND status = 'success' AND item_count > 0
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (chat_id,),
+            )
+
+    async def latest_run_item_ids(self, chat_id: int) -> list[int]:
+        row = await self.latest_run_row(chat_id)
+        if not row:
+            return []
+        async with self.connect() as db:
+            db.row_factory = aiosqlite.Row
+            rows = await self._fetchall(
+                db,
+                """
+                SELECT item_id FROM digest_run_items
+                WHERE digest_run_id = ?
+                ORDER BY rank ASC
+                """,
+                (int(row["id"]),),
+            )
+        return [int(entry["item_id"]) for entry in rows]
+
+    async def latest_run_item_by_rank(self, chat_id: int, rank: int) -> StoredItem | None:
+        row = await self.latest_run_row(chat_id)
+        if not row:
+            return None
+        async with self.connect() as db:
+            db.row_factory = aiosqlite.Row
+            item_row = await self._fetchone(
+                db,
+                """
+                SELECT items.*
+                FROM digest_run_items
+                JOIN items ON items.id = digest_run_items.item_id
+                WHERE digest_run_items.digest_run_id = ? AND digest_run_items.rank = ?
+                """,
+                (int(row["id"]), rank),
+            )
+        return self._row_to_item(item_row) if item_row else None
+
+    async def latest_run_entries(self, chat_id: int) -> list[DigestEntry]:
+        row = await self.latest_run_row(chat_id)
+        if not row:
+            return []
+        async with self.connect() as db:
+            db.row_factory = aiosqlite.Row
+            rows = await self._fetchall(
+                db,
+                """
+                SELECT digest_run_items.rank, digest_run_items.score, digest_run_items.section, items.*
+                FROM digest_run_items
+                JOIN items ON items.id = digest_run_items.item_id
+                WHERE digest_run_items.digest_run_id = ?
+                ORDER BY digest_run_items.rank ASC
+                """,
+                (int(row["id"]),),
+            )
+        return [
+            DigestEntry(
+                item=self._row_to_item(entry),
+                rank=int(entry["rank"]),
+                section=entry["section"],
+                score=float(entry["score"]),
+            )
+            for entry in rows
+        ]
+
     async def _get_item_by_id(self, item_id: int) -> StoredItem | None:
         async with self.connect() as db:
             db.row_factory = aiosqlite.Row
@@ -360,6 +530,11 @@ class Database:
             send_hour=int(row["send_hour"]),
             send_minute=int(row["send_minute"]),
             disabled_sources=json.loads(row["disabled_sources"]),
+            focus_topics=json.loads(row["focus_topics"] or "[]"),
+            content_mix=row["content_mix"],
+            alert_mode=row["alert_mode"],
+            quiet_hours_start=row["quiet_hours_start"],
+            quiet_hours_end=row["quiet_hours_end"],
             repeat_window_days=int(row["repeat_window_days"]),
             next_run_at=_from_iso(row["next_run_at"]),
             last_digest_at=_from_iso(row["last_digest_at"]),
@@ -382,6 +557,12 @@ class Database:
             why_it_matters=row["why_it_matters"],
             metadata=json.loads(row["metadata"] or "{}"),
         )
+
+    async def _ensure_chat_column(self, db: aiosqlite.Connection, name: str, ddl: str) -> None:
+        rows = await self._fetchall(db, "PRAGMA table_info(chats)", ())
+        if any(row["name"] == name for row in rows):
+            return
+        await db.execute(f"ALTER TABLE chats ADD COLUMN {name} {ddl}")
 
 
 def utc_midnight_cutoff(within_days: int) -> datetime:
