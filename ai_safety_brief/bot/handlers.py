@@ -13,6 +13,7 @@ from ai_safety_brief.bot.runtime import Runtime
 from ai_safety_brief.bot.ui import (
     build_alert_keyboard,
     build_alerts_keyboard,
+    build_channel_picker_keyboard,
     build_digest_keyboard,
     build_mix_keyboard,
     build_quiet_hours_keyboard,
@@ -20,6 +21,7 @@ from ai_safety_brief.bot.ui import (
     build_settings_summary,
     build_sources_keyboard,
     build_topics_keyboard,
+    chat_label,
 )
 from ai_safety_brief.models import ChatSettings, StoredItem
 from ai_safety_brief.personalization import (
@@ -52,13 +54,28 @@ async def require_registered(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def can_manage_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    chat = update.effective_chat
     user = update.effective_user
-    if not chat or not user:
+    chat = update.effective_chat
+    if not chat:
         return False
-    if chat.type == "private":
-        return True
-    member = await context.bot.get_chat_member(chat.id, user.id)
+    return await can_manage_target_chat(chat.id, chat.type, user.id if user else None, context)
+
+
+async def can_manage_target_chat(
+    chat_id: int,
+    chat_type: str,
+    user_id: int | None,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> bool:
+    if chat_type == "private":
+        return user_id == chat_id
+    if user_id is None:
+        return False
+    try:
+        member = await context.bot.get_chat_member(chat_id, user_id)
+    except Exception:
+        logger.warning("Failed to look up chat member for chat %s and user %s", chat_id, user_id, exc_info=True)
+        return False
     return member.status in {"creator", "administrator"}
 
 
@@ -118,6 +135,7 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             "ai safety brief is ready.\n\n"
             "commands:\n"
             "/brief - generate an immediate digest\n"
+            "/channels - manage channels from a private chat\n"
             "/more - show more results below the cutoff\n"
             "/why 2 - explain why an item was picked\n"
             "/status - current schedule and settings\n"
@@ -137,6 +155,7 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             "ai safety brief commands:\n"
             "/start\n"
             "/brief\n"
+            "/channels\n"
             "/more\n"
             "/why 2\n"
             "/status\n"
@@ -152,6 +171,54 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             "/resume"
         )
     )
+
+
+async def channels_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.effective_message or not update.effective_chat or not update.effective_user:
+        return
+    if update.effective_chat.type != "private":
+        await update.effective_message.reply_text("use /channels in a private chat with me.")
+        return
+    runtime = get_runtime(context.application)
+    channels = await _manageable_channels(runtime, context, update.effective_user.id)
+    if not channels:
+        await update.effective_message.reply_text(
+            (
+                "i couldn't find any channels you can manage yet.\n\n"
+                "add the bot to a channel as an admin first, then come back here and use /channels."
+            )
+        )
+        return
+    await update.effective_message.reply_text(
+        "choose a channel to manage:",
+        reply_markup=build_channel_picker_keyboard(channels),
+    )
+
+
+async def my_chat_member_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    change = update.my_chat_member
+    if not change or not change.chat:
+        return
+    runtime = get_runtime(context.application)
+    chat = await runtime.db.upsert_chat(
+        change.chat.id,
+        change.chat.type,
+        change.chat.title or getattr(change.chat, "full_name", "") or "",
+        defaults=chat_defaults(runtime),
+    )
+    new_status = change.new_chat_member.status
+    if new_status in {"member", "administrator"}:
+        if not chat.is_active or not chat.next_run_at:
+            chat.is_active = True
+            chat.next_run_at = compute_next_run(chat)
+            await runtime.db.update_chat(
+                chat.chat_id,
+                is_active=1,
+                next_run_at=chat.next_run_at.isoformat(),
+            )
+        return
+    if new_status in {"left", "kicked"}:
+        await runtime.db.update_chat(chat.chat_id, is_active=0, next_run_at=None)
 
 
 async def brief_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -326,8 +393,15 @@ async def settings_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             reply_markup=build_settings_keyboard(),
         )
         return
+    if chat.chat_type == "channel" and not update.effective_user:
+        await update.effective_message.reply_text(
+            "manage channel settings from a private chat with me using /channels, or use the buttons under one of my posts."
+        )
+        return
     if not await can_manage_chat(update, context):
-        await update.effective_message.reply_text("only chat admins can change persistent settings in groups.")
+        await update.effective_message.reply_text(
+            "only chat admins can change persistent settings in groups and channels."
+        )
         return
 
     subcommand = context.args[0].lower()
@@ -476,27 +550,75 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if not query or not query.message or not update.effective_chat:
         return
     runtime = get_runtime(context.application)
-    chat = await runtime.db.get_chat(update.effective_chat.id)
+    message_chat = getattr(query.message, "chat", None)
+    source_chat_id = message_chat.id if message_chat else update.effective_chat.id
+    raw_data = query.data or ""
+
+    if raw_data.startswith("channel:list:"):
+        if not update.effective_user:
+            await query.answer("open this from a private chat.", show_alert=True)
+            return
+        channels = await _manageable_channels(runtime, context, update.effective_user.id)
+        if not channels:
+            await query.answer("no manageable channels found.", show_alert=True)
+            return
+        page = int(raw_data.rsplit(":", 1)[1])
+        await query.answer()
+        await query.edit_message_text(
+            "choose a channel to manage:",
+            reply_markup=build_channel_picker_keyboard(channels, page=page),
+        )
+        return
+
+    if raw_data.startswith("channel:open:"):
+        if not update.effective_user:
+            await query.answer("open this from a private chat.", show_alert=True)
+            return
+        target_chat_id = int(raw_data.rsplit(":", 1)[1])
+        target_chat = await runtime.db.get_chat(target_chat_id)
+        if not target_chat:
+            await query.answer("that channel is not registered yet.", show_alert=True)
+            return
+        if not await can_manage_target_chat(target_chat.chat_id, target_chat.chat_type, update.effective_user.id, context):
+            await query.answer("you are not an admin of that channel.", show_alert=True)
+            return
+        await query.answer()
+        await query.edit_message_text(
+            _settings_panel_text(runtime, target_chat, remote=True),
+            reply_markup=build_settings_keyboard(target_chat.chat_id),
+        )
+        return
+
+    target_chat_id, data = _extract_target_chat_id(raw_data, source_chat_id)
+    chat = await runtime.db.get_chat(target_chat_id)
     if not chat:
         await query.answer("use /start first.", show_alert=True)
         return
 
-    data = query.data or ""
-    if _callback_requires_manage(data) and not await can_manage_chat(update, context):
-        await query.answer("only chat admins can change persistent settings in groups.", show_alert=True)
+    scoped_target_id = chat.chat_id if source_chat_id != chat.chat_id else None
+    if _callback_requires_manage(data) and not await can_manage_target_chat(
+        chat.chat_id,
+        chat.chat_type,
+        update.effective_user.id if update.effective_user else None,
+        context,
+    ):
+        await query.answer("only chat admins can change persistent settings here.", show_alert=True)
         return
 
     if data == "settings:panel":
         await query.answer()
         await query.message.reply_text(
-            build_settings_summary(chat, len(runtime.collector.enabled_sources(chat))),
-            reply_markup=build_settings_keyboard(),
+            _settings_panel_text(runtime, chat, remote=scoped_target_id is not None),
+            reply_markup=build_settings_keyboard(scoped_target_id),
         )
         return
 
     if data == "settings:topics":
         await query.answer()
-        await query.edit_message_text("choose focus topics:", reply_markup=build_topics_keyboard(chat))
+        await query.edit_message_text(
+            _targeted_prompt(chat, "choose focus topics:", scoped_target_id is not None),
+            reply_markup=build_topics_keyboard(chat, scoped_target_id),
+        )
         return
 
     if data.startswith("settings:topic_toggle:"):
@@ -507,38 +629,57 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             chat.focus_topics = sorted(set(chat.focus_topics + [topic]))
         await runtime.db.update_chat(chat.chat_id, focus_topics=json.dumps(chat.focus_topics))
         await query.answer("focus topics updated.")
-        await query.edit_message_text("choose focus topics:", reply_markup=build_topics_keyboard(chat))
+        await query.edit_message_text(
+            _targeted_prompt(chat, "choose focus topics:", scoped_target_id is not None),
+            reply_markup=build_topics_keyboard(chat, scoped_target_id),
+        )
         return
 
     if data == "settings:mix":
         await query.answer()
-        await query.edit_message_text("choose a content mix:", reply_markup=build_mix_keyboard(chat))
+        await query.edit_message_text(
+            _targeted_prompt(chat, "choose a content mix:", scoped_target_id is not None),
+            reply_markup=build_mix_keyboard(chat, scoped_target_id),
+        )
         return
 
     if data.startswith("settings:mix_set:"):
         chat.content_mix = coerce_content_mix(data.split(":", 2)[2])
         await runtime.db.update_chat(chat.chat_id, content_mix=chat.content_mix)
         await query.answer("content mix updated.")
-        await query.edit_message_text("choose a content mix:", reply_markup=build_mix_keyboard(chat))
+        await query.edit_message_text(
+            _targeted_prompt(chat, "choose a content mix:", scoped_target_id is not None),
+            reply_markup=build_mix_keyboard(chat, scoped_target_id),
+        )
         return
 
     if data == "settings:alerts":
         await query.answer()
-        await query.edit_message_text("choose an alert mode:", reply_markup=build_alerts_keyboard(chat))
+        await query.edit_message_text(
+            _targeted_prompt(chat, "choose an alert mode:", scoped_target_id is not None),
+            reply_markup=build_alerts_keyboard(chat, scoped_target_id),
+        )
         return
 
     if data.startswith("settings:alerts_set:"):
         chat.alert_mode = coerce_alert_mode(data.split(":", 2)[2])
         await runtime.db.update_chat(chat.chat_id, alert_mode=chat.alert_mode)
         await query.answer("alerts updated.")
-        await query.edit_message_text("choose an alert mode:", reply_markup=build_alerts_keyboard(chat))
+        await query.edit_message_text(
+            _targeted_prompt(chat, "choose an alert mode:", scoped_target_id is not None),
+            reply_markup=build_alerts_keyboard(chat, scoped_target_id),
+        )
         return
 
     if data == "settings:quiet_hours":
         await query.answer()
         await query.edit_message_text(
-            "choose quiet hours, or use /settings quiet-hours HH:MM-HH:MM for a custom window:",
-            reply_markup=build_quiet_hours_keyboard(chat),
+            _targeted_prompt(
+                chat,
+                "choose quiet hours, or use /settings quiet-hours HH:MM-HH:MM for a custom window:",
+                scoped_target_id is not None,
+            ),
+            reply_markup=build_quiet_hours_keyboard(chat, scoped_target_id),
         )
         return
 
@@ -554,8 +695,12 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         )
         await query.answer("quiet hours updated.")
         await query.edit_message_text(
-            "choose quiet hours, or use /settings quiet-hours HH:MM-HH:MM for a custom window:",
-            reply_markup=build_quiet_hours_keyboard(chat),
+            _targeted_prompt(
+                chat,
+                "choose quiet hours, or use /settings quiet-hours HH:MM-HH:MM for a custom window:",
+                scoped_target_id is not None,
+            ),
+            reply_markup=build_quiet_hours_keyboard(chat, scoped_target_id),
         )
         return
 
@@ -563,8 +708,13 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         page = int(data.rsplit(":", 1)[1])
         await query.answer()
         await query.edit_message_text(
-            "toggle sources on or off:",
-            reply_markup=build_sources_keyboard(runtime.collector.list_sources(), chat, page=page),
+            _targeted_prompt(chat, "toggle sources on or off:", scoped_target_id is not None),
+            reply_markup=build_sources_keyboard(
+                runtime.collector.list_sources(),
+                chat,
+                page=page,
+                target_chat_id=scoped_target_id,
+            ),
         )
         return
 
@@ -579,11 +729,12 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await runtime.db.update_chat(chat.chat_id, disabled_sources=json.dumps(chat.disabled_sources))
         await query.answer("source settings updated.")
         await query.edit_message_text(
-            "toggle sources on or off:",
+            _targeted_prompt(chat, "toggle sources on or off:", scoped_target_id is not None),
             reply_markup=build_sources_keyboard(
                 runtime.collector.list_sources(),
                 chat,
                 page=int(page_text),
+                target_chat_id=scoped_target_id,
             ),
         )
         return
@@ -655,6 +806,19 @@ async def _apply_item_feedback(runtime: Runtime, chat: ChatSettings, item: Store
     return "that source was already muted for this chat."
 
 
+async def _manageable_channels(
+    runtime: Runtime,
+    context: ContextTypes.DEFAULT_TYPE,
+    user_id: int,
+) -> list[ChatSettings]:
+    channels = await runtime.db.list_chats(chat_types=("channel",))
+    manageable: list[ChatSettings] = []
+    for channel in channels:
+        if await can_manage_target_chat(channel.chat_id, channel.chat_type, user_id, context):
+            manageable.append(channel)
+    return manageable
+
+
 async def _resolve_item_from_callback(runtime: Runtime, chat_id: int, data: str) -> StoredItem | None:
     parts = data.split(":")
     if len(parts) >= 4 and parts[3].isdigit():
@@ -664,6 +828,26 @@ async def _resolve_item_from_callback(runtime: Runtime, chat_id: int, data: str)
     if len(parts) >= 3 and parts[2].isdigit():
         return await runtime.db.latest_run_item_by_rank(chat_id, int(parts[2]))
     return None
+
+
+def _extract_target_chat_id(data: str, fallback_chat_id: int) -> tuple[int, str]:
+    if not data.startswith("chat:"):
+        return fallback_chat_id, data
+    _, chat_id_text, scoped_data = data.split(":", 2)
+    return int(chat_id_text), scoped_data
+
+
+def _targeted_prompt(chat: ChatSettings, prompt: str, remote: bool) -> str:
+    if not remote:
+        return prompt
+    return f"{chat_label(chat)}\n\n{prompt}"
+
+
+def _settings_panel_text(runtime: Runtime, chat: ChatSettings, remote: bool) -> str:
+    summary = build_settings_summary(chat, len(runtime.collector.enabled_sources(chat)))
+    if not remote:
+        return summary
+    return f"managing {chat_label(chat)}\n\n{summary}"
 
 
 def _callback_requires_manage(data: str) -> bool:

@@ -15,6 +15,21 @@ from ai_safety_brief.personalization import (
 )
 
 
+def _scope_callback(callback_data: str, target_chat_id: int | None = None) -> str:
+    if target_chat_id is None:
+        return callback_data
+    return f"chat:{target_chat_id}:{callback_data}"
+
+
+def chat_label(chat: ChatSettings) -> str:
+    title = chat.chat_title.strip()
+    if title:
+        return title
+    if chat.chat_type == "channel":
+        return f"channel {chat.chat_id}"
+    return str(chat.chat_id)
+
+
 def build_settings_summary(chat: ChatSettings, enabled_count: int) -> str:
     topics = ", ".join(topic_label(topic) for topic in chat.focus_topics) if chat.focus_topics else "all topics"
     return (
@@ -31,20 +46,23 @@ def build_settings_summary(chat: ChatSettings, enabled_count: int) -> str:
     )
 
 
-def build_settings_keyboard() -> InlineKeyboardMarkup:
+def build_settings_keyboard(target_chat_id: int | None = None) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("topics", callback_data="settings:topics"),
-                InlineKeyboardButton("content mix", callback_data="settings:mix"),
+                InlineKeyboardButton("topics", callback_data=_scope_callback("settings:topics", target_chat_id)),
+                InlineKeyboardButton("content mix", callback_data=_scope_callback("settings:mix", target_chat_id)),
             ],
             [
-                InlineKeyboardButton("alerts", callback_data="settings:alerts"),
-                InlineKeyboardButton("quiet hours", callback_data="settings:quiet_hours"),
+                InlineKeyboardButton("alerts", callback_data=_scope_callback("settings:alerts", target_chat_id)),
+                InlineKeyboardButton(
+                    "quiet hours",
+                    callback_data=_scope_callback("settings:quiet_hours", target_chat_id),
+                ),
             ],
             [
-                InlineKeyboardButton("sources", callback_data="settings:sources:0"),
-                InlineKeyboardButton("why these picks", callback_data="digest:why"),
+                InlineKeyboardButton("sources", callback_data=_scope_callback("settings:sources:0", target_chat_id)),
+                InlineKeyboardButton("why these picks", callback_data=_scope_callback("digest:why", target_chat_id)),
             ],
         ]
     )
@@ -77,7 +95,7 @@ def build_alert_keyboard(item: StoredItem) -> InlineKeyboardMarkup:
     )
 
 
-def build_topics_keyboard(chat: ChatSettings) -> InlineKeyboardMarkup:
+def build_topics_keyboard(chat: ChatSettings, target_chat_id: int | None = None) -> InlineKeyboardMarkup:
     rows = []
     for index in range(0, len(FOCUS_TOPICS), 2):
         row = []
@@ -86,39 +104,60 @@ def build_topics_keyboard(chat: ChatSettings) -> InlineKeyboardMarkup:
             row.append(
                 InlineKeyboardButton(
                     f"{selected}{topic_label(topic)}",
-                    callback_data=f"settings:topic_toggle:{topic}",
+                    callback_data=_scope_callback(f"settings:topic_toggle:{topic}", target_chat_id),
                 )
             )
         rows.append(row)
-    rows.append([InlineKeyboardButton("back", callback_data="settings:panel")])
+    rows.append([InlineKeyboardButton("back", callback_data=_scope_callback("settings:panel", target_chat_id))])
     return InlineKeyboardMarkup(rows)
 
 
-def build_mix_keyboard(chat: ChatSettings) -> InlineKeyboardMarkup:
+def build_mix_keyboard(chat: ChatSettings, target_chat_id: int | None = None) -> InlineKeyboardMarkup:
     rows = []
     for mix in CONTENT_MIXES:
         label = f"✓ {mix}" if mix == chat.content_mix else mix
-        rows.append([InlineKeyboardButton(label, callback_data=f"settings:mix_set:{mix}")])
-    rows.append([InlineKeyboardButton("back", callback_data="settings:panel")])
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    label,
+                    callback_data=_scope_callback(f"settings:mix_set:{mix}", target_chat_id),
+                )
+            ]
+        )
+    rows.append([InlineKeyboardButton("back", callback_data=_scope_callback("settings:panel", target_chat_id))])
     return InlineKeyboardMarkup(rows)
 
 
-def build_alerts_keyboard(chat: ChatSettings) -> InlineKeyboardMarkup:
+def build_alerts_keyboard(chat: ChatSettings, target_chat_id: int | None = None) -> InlineKeyboardMarkup:
     rows = []
     for mode in ALERT_MODES:
         label = f"✓ {mode}" if mode == chat.alert_mode else mode
-        rows.append([InlineKeyboardButton(label, callback_data=f"settings:alerts_set:{mode}")])
-    rows.append([InlineKeyboardButton("back", callback_data="settings:panel")])
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    label,
+                    callback_data=_scope_callback(f"settings:alerts_set:{mode}", target_chat_id),
+                )
+            ]
+        )
+    rows.append([InlineKeyboardButton("back", callback_data=_scope_callback("settings:panel", target_chat_id))])
     return InlineKeyboardMarkup(rows)
 
 
-def build_quiet_hours_keyboard(chat: ChatSettings) -> InlineKeyboardMarkup:
+def build_quiet_hours_keyboard(chat: ChatSettings, target_chat_id: int | None = None) -> InlineKeyboardMarkup:
     current = format_quiet_hours(chat)
     rows = []
     for preset in QUIET_HOUR_PRESETS:
         label = f"✓ {preset}" if preset == current else preset
-        rows.append([InlineKeyboardButton(label, callback_data=f"settings:quiet_set:{preset}")])
-    rows.append([InlineKeyboardButton("back", callback_data="settings:panel")])
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    label,
+                    callback_data=_scope_callback(f"settings:quiet_set:{preset}", target_chat_id),
+                )
+            ]
+        )
+    rows.append([InlineKeyboardButton("back", callback_data=_scope_callback("settings:panel", target_chat_id))])
     return InlineKeyboardMarkup(rows)
 
 
@@ -127,6 +166,7 @@ def build_sources_keyboard(
     chat: ChatSettings,
     page: int = 0,
     page_size: int = 8,
+    target_chat_id: int | None = None,
 ) -> InlineKeyboardMarkup:
     start = page * page_size
     slice_sources = sources[start : start + page_size]
@@ -139,16 +179,47 @@ def build_sources_keyboard(
             [
                 InlineKeyboardButton(
                     label,
-                    callback_data=f"settings:source_toggle:{source.key}:{page}",
+                    callback_data=_scope_callback(f"settings:source_toggle:{source.key}:{page}", target_chat_id),
                 )
             ]
         )
     nav = []
     if page > 0:
-        nav.append(InlineKeyboardButton("prev", callback_data=f"settings:sources:{page - 1}"))
+        nav.append(
+            InlineKeyboardButton(
+                "prev",
+                callback_data=_scope_callback(f"settings:sources:{page - 1}", target_chat_id),
+            )
+        )
     if start + page_size < len(sources):
-        nav.append(InlineKeyboardButton("next", callback_data=f"settings:sources:{page + 1}"))
+        nav.append(
+            InlineKeyboardButton(
+                "next",
+                callback_data=_scope_callback(f"settings:sources:{page + 1}", target_chat_id),
+            )
+        )
     if nav:
         rows.append(nav)
-    rows.append([InlineKeyboardButton("back", callback_data="settings:panel")])
+    rows.append([InlineKeyboardButton("back", callback_data=_scope_callback("settings:panel", target_chat_id))])
+    return InlineKeyboardMarkup(rows)
+
+
+def build_channel_picker_keyboard(
+    chats: list[ChatSettings],
+    page: int = 0,
+    page_size: int = 8,
+) -> InlineKeyboardMarkup:
+    start = page * page_size
+    slice_chats = chats[start : start + page_size]
+    rows = [
+        [InlineKeyboardButton(chat_label(chat), callback_data=f"channel:open:{chat.chat_id}")]
+        for chat in slice_chats
+    ]
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton("prev", callback_data=f"channel:list:{page - 1}"))
+    if start + page_size < len(chats):
+        nav.append(InlineKeyboardButton("next", callback_data=f"channel:list:{page + 1}"))
+    if nav:
+        rows.append(nav)
     return InlineKeyboardMarkup(rows)

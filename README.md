@@ -1,10 +1,10 @@
 # AI Safety Brief
 
-`AI Safety Brief` is a Telegram bot that builds scheduled AI safety digests for a private chat or group. It collects items from a curated set of AI safety sources, ranks them, filters low-signal pieces, summarizes the top `k`, and sends a compact brief on a configurable schedule.
+`AI Safety Brief` is a Telegram bot that builds scheduled AI safety digests for a private chat, group, or channel. It collects items from a curated set of AI safety sources, ranks them, filters low-signal pieces, summarizes the top `k`, and sends a compact brief on a configurable schedule.
 
 ## What It Does
 
-- Sends scheduled digests to a private chat or Telegram group
+- Sends scheduled digests to a private chat, Telegram group, or Telegram channel
 - Supports `daily`, `hourly`, and `weekly` cadences
 - Lets each chat configure:
   - `top_k`
@@ -17,6 +17,7 @@
   - quiet hours
   - repeat window to avoid resurfacing the same items too quickly
 - Supports inline control-panel buttons inside Telegram for tuning the brief
+- Auto-registers channels when the bot is added, and supports managing channels from a private chat with `/channels`
 - Sends optional high-signal alerts between digests with anti-spam guardrails
 - Stores chat settings, seen history, and run history in SQLite
 - Runs as a polling worker, which makes it easy to keep alive on Fly.io
@@ -54,6 +55,7 @@ Best-effort X support is included through configurable RSS-style mirrors via `X_
 - `/start` registers the chat
 - `/help` shows usage
 - `/brief` generates an immediate digest
+- `/channels` lists channels you can manage from a private chat
 - `/status` shows the active settings and next run
 - `/history` shows recent digest runs
 - `/sources` lists source toggles
@@ -75,7 +77,7 @@ Best-effort X support is included through configurable RSS-style mirrors via `X_
 - `/settings source disable lesswrong`
 - `/settings repeat-window 7`
 
-In groups, only admins can change persistent settings.
+In groups and channels, only admins can change persistent settings. Channels are best managed from a private chat with the bot using `/channels`, though inline buttons on bot posts in the channel also work.
 
 ## Local Setup
 

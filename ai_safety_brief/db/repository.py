@@ -225,6 +225,20 @@ class Database:
             )
         return [self._row_to_chat(row) for row in rows]
 
+    async def list_chats(self, chat_types: tuple[str, ...] | None = None) -> list[ChatSettings]:
+        async with self.connect() as db:
+            db.row_factory = aiosqlite.Row
+            if not chat_types:
+                rows = await self._fetchall(db, "SELECT * FROM chats ORDER BY chat_title ASC, chat_id ASC", ())
+            else:
+                placeholders = ", ".join("?" for _ in chat_types)
+                rows = await self._fetchall(
+                    db,
+                    f"SELECT * FROM chats WHERE chat_type IN ({placeholders}) ORDER BY chat_title ASC, chat_id ASC",
+                    chat_types,
+                )
+        return [self._row_to_chat(row) for row in rows]
+
     async def list_recent_runs(self, chat_id: int, limit: int = 5) -> list[aiosqlite.Row]:
         async with self.connect() as db:
             db.row_factory = aiosqlite.Row

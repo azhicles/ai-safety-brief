@@ -1,5 +1,6 @@
 from ai_safety_brief.bot.ui import (
     build_alert_keyboard,
+    build_channel_picker_keyboard,
     build_digest_keyboard,
     build_settings_keyboard,
     build_sources_keyboard,
@@ -15,6 +16,14 @@ def test_settings_keyboard_exposes_control_panel_actions():
     assert "settings:alerts" in callback_data
     assert "settings:quiet_hours" in callback_data
     assert "settings:sources:0" in callback_data
+
+
+def test_settings_keyboard_can_be_scoped_to_a_remote_channel():
+    keyboard = build_settings_keyboard(target_chat_id=-100123).inline_keyboard
+    callback_data = {button.callback_data for row in keyboard for button in row}
+    assert "chat:-100123:settings:topics" in callback_data
+    assert "chat:-100123:settings:mix" in callback_data
+    assert "chat:-100123:settings:sources:0" in callback_data
 
 
 def test_digest_and_alert_keyboards_expose_expected_actions():
@@ -52,3 +61,14 @@ def test_sources_keyboard_toggles_sources_and_pages():
     callback_data = [button.callback_data for row in keyboard for button in row]
     assert "settings:source_toggle:source_0:0" in callback_data
     assert "settings:sources:1" in callback_data
+
+
+def test_channel_picker_keyboard_exposes_channel_targets():
+    chats = [
+        ChatSettings(chat_id=-1001, chat_type="channel", chat_title="alpha"),
+        ChatSettings(chat_id=-1002, chat_type="channel", chat_title="beta"),
+    ]
+    keyboard = build_channel_picker_keyboard(chats).inline_keyboard
+    callback_data = [button.callback_data for row in keyboard for button in row]
+    assert "channel:open:-1001" in callback_data
+    assert "channel:open:-1002" in callback_data
